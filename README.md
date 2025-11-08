@@ -13,6 +13,9 @@
 
 
 ## Usage
+Compute Alpha for each Linear Layer and save to CSV.
 ```
 python main.py mistralai/Mixtral-8x7B-v0.1 --output-csv data/mixtral_alpha_base.csv
 ```
+
+Compute Alpha for model which is not contained in Transformers package, refer to **work_around_main.py**
