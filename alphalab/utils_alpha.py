@@ -8,7 +8,7 @@ import torch.nn as nn
 from loguru import logger
 
 
-USE_FARMS: bool = False
+USE_FARMS: bool = True
 _env_mode = os.getenv("ALPHA_MODE", "").strip().upper()
 if _env_mode in {"FARMS", "BASELINE"}:
     USE_FARMS = (_env_mode == "FARMS")
