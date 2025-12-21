@@ -33,7 +33,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--repo-id",
-        default="fla-hub/delta_net-1.3B-100B",
+        default="fla-hub/delta_net-2.7B-100B",
         help="Hugging Face repo id to download (default: %(default)s)",
     )
     parser.add_argument(

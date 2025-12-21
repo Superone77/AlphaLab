@@ -76,12 +76,15 @@ def _load_model(model_name_or_path: str, attn_impl: str, dtype: torch.dtype):
     config = AutoConfig.from_pretrained(
         model_name_or_path,
         attn_implementation=attn_impl,
+        trust_remote_code=True
     )
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         config=config,
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map="cpu",
+        cache_dir="./cache",
+        trust_remote_code=True
     )
     model.eval()
     logger.info("Model loaded successfully.")

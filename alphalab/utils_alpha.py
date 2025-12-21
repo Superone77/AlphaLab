@@ -183,7 +183,7 @@ def compute_alpha_values(
             logger.info(f"Loading alpha values from cache: {cache_path}")
             return load_alpha_from_csv(cache_path)
 
-    logger.info("Computing alpha values for all linear layers...")
+    logger.info("Computing alpha values for all linear layers and MoE experts...")
     results: Dict[str, float] = {}
 
     for name, module in model.named_modules():
@@ -200,6 +200,24 @@ def compute_alpha_values(
             except Exception as e:
                 logger.warning(f"Failed to compute alpha for {name}: {e}")
                 results[name] = float("nan")
+        elif isinstance(module, nn.ParameterList):
+            # Handle MoE expert weights stored in ParameterList
+            for idx, param in enumerate(module):
+                if param is None or not isinstance(param, torch.Tensor):
+                    continue
+                # Skip 1D tensors (bias) and only process 2D weight matrices
+                if param.ndim < 2:
+                    continue
+                param_name = f"{name}.{idx}"
+                try:
+                    alpha, k_used, n_eigs = alpha_hill_from_weight(
+                        param.detach(),
+                        use_farms=use_farms,
+                    )
+                    results[param_name] = alpha
+                except Exception as e:
+                    logger.warning(f"Failed to compute alpha for {param_name}: {e}")
+                    results[param_name] = float("nan")
 
     if cache_path:
         logger.info(f"Saving alpha values to: {cache_path}")
