@@ -18,4 +18,11 @@ Compute Alpha for each Linear Layer and save to CSV.
 python main.py mistralai/Mixtral-8x7B-v0.1 --output-csv data/mixtral_alpha_base.csv
 ```
 
+By default, AlphaLab uses FARMS sampling and Fix-finger tail selection with
+`FIX_FINGER=xmin_peak`, matching the paper's PL_Alpha_Hill setup. To disable
+Fix-finger and fall back to a fixed top-k fraction, set:
+```
+FIX_FINGER=none python main.py mistralai/Mixtral-8x7B-v0.1 --output-csv data/mixtral_alpha_base.csv
+```
+
 Compute Alpha for model which is not contained in Transformers package, refer to **work_around_main.py**

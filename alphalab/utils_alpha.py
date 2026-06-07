@@ -13,6 +13,15 @@ _env_mode = os.getenv("ALPHA_MODE", "").strip().upper()
 if _env_mode in {"FARMS", "BASELINE"}:
     USE_FARMS = (_env_mode == "FARMS")
 
+_fix_finger_env = os.getenv("FIX_FINGER", "xmin_peak").strip().lower()
+if _fix_finger_env in {"none", "off", "false", "0", ""}:
+    _fix_finger_env = ""
+elif _fix_finger_env == "xminmid":
+    _fix_finger_env = "xmin_mid"
+elif _fix_finger_env == "xminpeak":
+    _fix_finger_env = "xmin_peak"
+FIX_FINGER: Optional[str] = _fix_finger_env or None
+
 FARMS_M_SUB: int = int(os.getenv("FARMS_M_SUB", "128"))
 FARMS_N_SUB: int = int(os.getenv("FARMS_N_SUB", "128"))
 FARMS_STRIDE_M: int = int(os.getenv("FARMS_STRIDE_M", str(FARMS_M_SUB)))
@@ -128,6 +137,90 @@ def _hill_alpha_from_sorted_eigs(
 
 
 @torch.no_grad()
+def _fix_finger_alpha_from_sorted_eigs(
+    lam_sorted: torch.Tensor,
+    *,
+    fix_finger: str,
+    xmin_pos: int = 2,
+    bins: int = 100,
+    evals_thresh: float = 1e-5,
+    filter_zeros: bool = False,
+    eps: float = 1e-12,
+) -> Tuple[float, int, int]:
+    n_eigs = lam_sorted.numel()
+    if n_eigs < 2:
+        return float("nan"), 1, n_eigs
+
+    if filter_zeros:
+        eigs = lam_sorted[lam_sorted > evals_thresh]
+        if eigs.numel() == 0:
+            eigs = lam_sorted
+    else:
+        eigs = lam_sorted
+
+    num_eigs = int(eigs.numel())
+    if num_eigs < 2:
+        return float("nan"), 1, num_eigs
+
+    log_eigs = torch.log(eigs.clamp_min(eps))
+
+    if fix_finger == "xmin_mid":
+        start_idx = int(num_eigs / max(1, xmin_pos))
+    elif fix_finger == "xmin_peak":
+        log10_eigs = torch.log10(eigs.clamp_min(eps))
+        min_log = log10_eigs.min()
+        max_log = log10_eigs.max()
+        if torch.isclose(min_log, max_log):
+            start_idx = 0
+        else:
+            counts = torch.histc(log10_eigs, bins=bins, min=min_log, max=max_log)
+            boundaries = torch.linspace(
+                min_log, max_log, bins + 1, device=eigs.device
+            )
+            peak_bin = int(torch.argmax(counts).item())
+            peak_lower = 10 ** boundaries[peak_bin]
+            start_idx = int(torch.searchsorted(eigs, peak_lower, right=False).item())
+    else:
+        raise ValueError(
+            f"Unsupported fix_finger={fix_finger!r}; expected 'xmin_peak' or "
+            "'xmin_mid'"
+        )
+
+    start_idx = max(0, min(start_idx, num_eigs - 2))
+    tail_count = float(num_eigs - start_idx)
+    xmin = eigs[start_idx].clamp_min(eps)
+    denom = (torch.sum(log_eigs[start_idx:]) - tail_count * torch.log(xmin))
+    denom = denom.clamp_min(eps)
+    alpha = 1 + tail_count / denom
+    k_used = int(tail_count)
+    return float(alpha), k_used, num_eigs
+
+
+@torch.no_grad()
+def _alpha_from_sorted_eigs(
+    lam_sorted: torch.Tensor,
+    k: Optional[int] = None,
+    k_frac: float = 0.1,
+    eps: float = 1e-12,
+    *,
+    fix_finger: Optional[str] = FIX_FINGER,
+) -> Tuple[float, int, int]:
+    if fix_finger:
+        return _fix_finger_alpha_from_sorted_eigs(
+            lam_sorted,
+            fix_finger=fix_finger,
+            eps=eps,
+        )
+
+    return _hill_alpha_from_sorted_eigs(
+        lam_sorted,
+        k=k,
+        k_frac=k_frac,
+        eps=eps,
+    )
+
+
+@torch.no_grad()
 def alpha_hill_from_weight(
     W: torch.Tensor,
     k: Optional[int] = None,
@@ -141,6 +234,7 @@ def alpha_hill_from_weight(
     farms_stride_n: int = FARMS_STRIDE_N,
     farms_max_blocks: int = FARMS_MAX_BLOCKS,
     farms_seed: Optional[int] = FARMS_RANDOM_SEED,
+    fix_finger: Optional[str] = FIX_FINGER,
 ) -> Tuple[float, int, int]:
     mode_farms = USE_FARMS if use_farms is None else bool(use_farms)
 
@@ -165,7 +259,13 @@ def alpha_hill_from_weight(
         )
         return float("nan"), 1, int(min_dim)
 
-    return _hill_alpha_from_sorted_eigs(lam_sorted, k=k, k_frac=k_frac, eps=eps)
+    return _alpha_from_sorted_eigs(
+        lam_sorted,
+        k=k,
+        k_frac=k_frac,
+        eps=eps,
+        fix_finger=fix_finger,
+    )
 
 
 def compute_alpha_values(
@@ -248,6 +348,7 @@ def load_alpha_from_csv(filename: str) -> Dict[str, float]:
 
 __all__ = [
     "USE_FARMS",
+    "FIX_FINGER",
     "FARMS_M_SUB",
     "FARMS_N_SUB",
     "FARMS_STRIDE_M",
@@ -259,4 +360,3 @@ __all__ = [
     "save_alpha_to_csv",
     "load_alpha_from_csv",
 ]
-
